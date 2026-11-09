@@ -91,15 +91,36 @@ def load_csv(path: str) -> list[Participant]:
 
 
 def prompt_participants() -> list[Participant]:
+    """Ask for participants one at a time, checking each entry as it is typed."""
     print("Enter participants. Leave the name blank when finished.\n")
-    out = []
+    out: list[Participant] = []
     while True:
         name = input(f"Gifter #{len(out) + 1} name: ").strip()
         if not name:
+            if len(out) < 2:
+                print("  Please enter at least 2 participants.")
+                continue
             break
-        email = input("  Email: ").strip()
-        spouse = input("  Spouse name (optional): ").strip()
+        if any(p.key == name.casefold() for p in out):
+            print(f"  {name!r} is already entered. Names must be unique.")
+            continue
+        while True:
+            email = input("  Email: ").strip()
+            if EMAIL_RE.match(email):
+                break
+            print("  That doesn't look like a valid email. Try again.")
+        while True:
+            spouse = input("  Spouse name (optional, press Enter to skip): ").strip()
+            if spouse.casefold() != name.casefold():
+                break
+            print("  A person can't be their own spouse.")
         out.append(Participant(name, email, spouse))
+
+    names = {p.key for p in out}
+    for p in out:
+        if p.spouse_key and p.spouse_key not in names:
+            print(f"  Note: {p.name}'s spouse {p.spouse!r} isn't in the list, so it has no effect.")
+    print(f"\n{len(out)} participants entered.")
     return out
 
 
@@ -250,7 +271,9 @@ def _quote(s: str) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def send_all(cfg: MailConfig, participants: list[Participant], pairings: dict[str, Participant]) -> None:
+def send_all(cfg: MailConfig, participants: list[Participant], pairings: dict[str, Participant],
+             log=print) -> list[str]:
+    """Send one email per gifter, then delete the sent copies. Returns warnings."""
     message_ids: list[str] = []
     ctx = ssl.create_default_context()
     if cfg.smtp_port == 465:
@@ -265,22 +288,17 @@ def send_all(cfg: MailConfig, participants: list[Participant], pairings: dict[st
             smtp.send_message(msg)
             message_ids.append(msg["Message-ID"])
             del msg  # don't keep the content around
-            print(f"  ✓ sent to {p.name}")
+            log(f"  ✓ sent to {p.name}")
     pairings.clear()
 
-    if cfg.imap_host:
-        print("Deleting sent copies from the mailbox...")
-        warnings = _imap_purge(cfg, message_ids)
-        for w in warnings:
-            print(f"  ! {w}", file=sys.stderr)
-        if not warnings:
-            print("  ✓ sent copies deleted")
-    else:
-        print(
-            "Note: IMAP_HOST not set, so copies your mail provider saved in "
-            "'Sent' were not deleted. Delete them manually without opening them.",
-            file=sys.stderr,
-        )
+    if not cfg.imap_host:
+        return ["No IMAP server was set, so the copies your mail provider saved in "
+                "'Sent' were not deleted. Delete them yourself without opening them."]
+    log("Deleting sent copies from the mailbox...")
+    warnings = _imap_purge(cfg, message_ids)
+    if not warnings:
+        log("  ✓ sent copies deleted")
+    return warnings
 
 
 # ----------------------------------------------------------------------------- cli
@@ -307,7 +325,8 @@ def main(argv: list[str] | None = None) -> int:
         cfg = MailConfig.from_env()
         print(f"\nDraw complete. Emailing {len(participants)} gifters "
               "(pairings are not shown)...")
-        send_all(cfg, participants, pairings)
+        for w in send_all(cfg, participants, pairings):
+            print(f"  ! {w}", file=sys.stderr)
         print("Done. Happy holidays! 🎄")
         return 0
     except SecretSantaError as exc:

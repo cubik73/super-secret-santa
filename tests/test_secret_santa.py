@@ -78,5 +78,25 @@ class TestCsvAndMessage(unittest.TestCase):
         self.assertTrue(msg["Message-ID"])
 
 
+class TestPrompt(unittest.TestCase):
+    def run_prompt(self, answers):
+        from unittest import mock
+        it = iter(answers)
+        with mock.patch("builtins.input", lambda _="": next(it)), \
+             mock.patch("builtins.print"):
+            return ss.prompt_participants()
+
+    def test_reprompts_bad_input(self):
+        people = self.run_prompt([
+            "",                       # too early to stop: re-asked
+            "Ann", "bad", "a@x.com", "ann", "Bob",   # bad email, self as spouse
+            "ann",                    # duplicate name: skipped
+            "Bob", "b@x.com", "",
+            "",                       # done
+        ])
+        self.assertEqual([(p.name, p.email, p.spouse) for p in people],
+                         [("Ann", "a@x.com", "Bob"), ("Bob", "b@x.com", "")])
+
+
 if __name__ == "__main__":
     unittest.main()

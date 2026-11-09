@@ -10,7 +10,29 @@ It needs Python 3.9 or later and uses only the standard library, so there's noth
 - After the emails go out, the sent copies are deleted from your mailbox (see *Deleting sent emails*).
 - **Test mode** (`--test`) prints every pairing on screen and sends no email.
 
-## Input
+## Entering participants
+There are three ways to enter names, emails and spouse names.
+
+### 1. In your browser (easiest)
+```bash
+python3 web.py
+```
+This opens http://127.0.0.1:8000 in your browser. Type each person's **name**, **email** and **spouse name** (optional).
+Use **+ Add person** to add more rows, or **Import CSV…** to fill the table from a file. Then click:
+- **Test mode: show pairings**: shows every pairing on the page and sends no email.
+- **Draw & send emails**: emails each person their giftee. The page lists who was emailed, but never who they drew.
+
+Enter your mail server details under **Email settings**. Anything set in the environment variables
+below fills in automatically, except the password.
+The page runs only on your computer (`127.0.0.1`) and saves nothing to disk.
+Use `--port` to pick a different port, or `--no-browser` to stop it opening a browser.
+
+### 2. Typed in at the command line
+Run `python3 secret_santa.py` (or add `--test`) without a file. It asks for each person's name, email
+and spouse. It checks each entry as you type it: a bad email, a duplicate name, or a person listed as their
+own spouse is asked for again. Leave the name blank when you're done.
+
+### 3. From a CSV file
 Use a CSV file with the columns `name,email,spouse`. The `spouse` value can be blank. See `participants.example.csv`.
 
 ```csv
