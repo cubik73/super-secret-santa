@@ -19,7 +19,8 @@ The app isn't code-signed, so Windows and macOS show a warning the first time.
 
 **Where to get them:** in GitHub, open **Actions → Build executables**, pick the latest run, and download from
 **Artifacts** (you need to be signed in). To publish a public download page, push a version tag
-(`git tag v1.0.0 && git push origin v1.0.0`). The files are then attached to a GitHub Release.
+(`git tag v1.0.0 && git push origin v1.0.0`), or put the new number in `VERSION` and include `[release]` in the commit message.
+The files are then attached to a GitHub Release.
 
 **Building one yourself:** run `pip install pyinstaller` and then `pyinstaller --onefile --name secret-santa app.py`.
 The file appears in `dist/`. Each system can only build its own version.
