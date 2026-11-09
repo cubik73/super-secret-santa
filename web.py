@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Browser form for Secret Santa.
 
-Run:  python3 web.py          then open http://127.0.0.1:8000
+Run:  python3 web.py          (opens http://127.0.0.1:8737 in your browser)
 It listens only on this computer (127.0.0.1). Nothing is saved to disk.
 """
 from __future__ import annotations
@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import smtplib
+import urllib.request
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -384,14 +385,47 @@ document.getElementById('clearBtn').onclick = () => {
 """
 
 
-def main() -> None:
+DEFAULT_PORT = 8737
+# Saved entries live in the browser per address (including the port), so we
+# always try the same short list of ports in the same order.
+FALLBACK_PORTS = range(DEFAULT_PORT, DEFAULT_PORT + 10)
+
+
+def _already_running(port: int) -> bool:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1) as r:
+            return b"<title>Secret Santa</title>" in r.read(4096)
+    except OSError:
+        return False
+
+
+def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description="Secret Santa web form.")
-    ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--port", type=int, help=f"Port to use (default {DEFAULT_PORT}).")
     ap.add_argument("--no-browser", action="store_true", help="Don't open a browser automatically.")
-    args = ap.parse_args()
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-    url = f"http://127.0.0.1:{args.port}"
-    print(f"Secret Santa is running at {url}  (Ctrl+C to stop)")
+    args = ap.parse_args(argv)
+
+    ports = [args.port] if args.port else list(FALLBACK_PORTS)
+    server = None
+    for port in ports:
+        if _already_running(port):
+            url = f"http://127.0.0.1:{port}"
+            print(f"Secret Santa is already running at {url}. Opening it in your browser.")
+            if not args.no_browser:
+                webbrowser.open(url)
+            return
+        try:
+            server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+            break
+        except OSError:
+            continue
+    if server is None:
+        raise SystemExit(f"Couldn't find a free port ({ports[0]}-{ports[-1]}). Close other programs and try again.")
+
+    url = f"http://127.0.0.1:{server.server_address[1]}"
+    print("🎁 Secret Santa is running.")
+    print(f"   If your browser didn't open, go to: {url}")
+    print("   Keep this window open while you use it. Close it (or press Ctrl+C) to quit.")
     if not args.no_browser:
         webbrowser.open(url)
     try:

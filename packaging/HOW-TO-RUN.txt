@@ -1,0 +1,41 @@
+SECRET SANTA - HOW TO RUN
+=========================
+
+Double-click "secret-santa" (Windows: "secret-santa.exe").
+A small window opens and the Secret Santa form opens in your web browser.
+Keep the small window open while you use the form. Close it when you're done.
+
+Your participants and settings are remembered in your browser for next time.
+Nothing is sent anywhere except the Secret Santa emails themselves.
+
+
+FIRST-TIME WARNINGS (normal for free apps that aren't code-signed)
+------------------------------------------------------------------
+Windows:  "Windows protected your PC" -> click "More info" -> "Run anyway".
+
+Mac:      "cannot be opened because Apple cannot check it for malicious software"
+          -> click Done, then open System Settings -> Privacy & Security,
+             scroll down and click "Open Anyway" next to secret-santa.
+          (Older macOS: right-click the file -> Open -> Open.)
+
+Linux:    If double-clicking doesn't run it, open a terminal in this folder and run:
+              chmod +x secret-santa && ./secret-santa
+
+
+SENDING EMAIL
+-------------
+Open "Email settings" on the form. For Gmail:
+  SMTP server: smtp.gmail.com     port: 587
+  IMAP server: imap.gmail.com     (used to delete the sent copies)
+  Sent folder: [Gmail]/Sent Mail  Trash folder: [Gmail]/Trash
+  Password:    a Gmail App Password (https://myaccount.google.com/apppasswords),
+               not your normal password.
+
+Always try "Test mode: show pairings" first. It sends nothing.
+
+
+COMMAND-LINE VERSION (optional)
+-------------------------------
+  secret-santa cli                         type participants in
+  secret-santa cli people.csv --test       preview pairings from a CSV
+  secret-santa cli people.csv              draw and send

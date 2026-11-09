@@ -3,6 +3,27 @@
 Draws Secret Santa pairs and emails each gifter the name of their giftee.
 It needs Python 3.9 or later and uses only the standard library, so there's nothing to install.
 
+## Download and run (no Python needed)
+Ready-to-run versions are built automatically for:
+
+| System | File |
+|---|---|
+| Windows 10/11 | `secret-santa-windows-x64.zip` |
+| Mac with Apple Silicon (M1 or newer) | `secret-santa-macos-apple-silicon.zip` |
+| Mac with Intel chip | `secret-santa-macos-intel.zip` |
+| Linux / Ubuntu (64-bit) | `secret-santa-linux-x64.tar.gz` |
+
+Unzip the file and double-click `secret-santa`. The form opens in your browser.
+The app isn't code-signed, so Windows and macOS show a warning the first time.
+`HOW-TO-RUN.txt` in each download explains how to get past it.
+
+**Where to get them:** in GitHub, open **Actions → Build executables**, pick the latest run, and download from
+**Artifacts** (you need to be signed in). To publish a public download page, push a version tag
+(`git tag v1.0.0 && git push origin v1.0.0`). The files are then attached to a GitHub Release.
+
+**Building one yourself:** run `pip install pyinstaller` and then `pyinstaller --onefile --name secret-santa app.py`.
+The file appears in `dist/`. Each system can only build its own version.
+
 ## Rules
 - Each person gives one gift and gets one gift. No one draws themselves.
 - **Spouse name is optional.** If you enter one, those two people never draw each other, in either direction.
@@ -17,7 +38,7 @@ There are three ways to enter names, emails and spouse names.
 ```bash
 python3 web.py
 ```
-This opens http://127.0.0.1:8000 in your browser. Type each person's **name**, **email** and **spouse name** (optional).
+This opens http://127.0.0.1:8737 in your browser. Type each person's **name**, **email** and **spouse name** (optional).
 Use **+ Add person** to add more rows, or **Import CSV…** to fill the table from a file. Then click:
 - **Test mode: show pairings**: shows every pairing on the page and sends no email.
 - **Draw & send emails**: emails each person their giftee. The page lists who was emailed, but never who they drew.
