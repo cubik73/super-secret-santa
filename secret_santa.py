@@ -31,6 +31,9 @@ from email.utils import make_msgid
 
 _rng = secrets.SystemRandom()
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+MAX_PARTICIPANTS = 100
+MAX_NAME_LEN = 60
+MAX_EMAIL_LEN = 254
 
 
 @dataclass(frozen=True)
@@ -57,6 +60,8 @@ class SecretSantaError(Exception):
 def validate(participants: list[Participant]) -> None:
     if len(participants) < 2:
         raise SecretSantaError("Need at least 2 participants.")
+    if len(participants) > MAX_PARTICIPANTS:
+        raise SecretSantaError(f"At most {MAX_PARTICIPANTS} participants per draw.")
     seen: set[str] = set()
     for p in participants:
         if not p.name.strip():
@@ -64,7 +69,9 @@ def validate(participants: list[Participant]) -> None:
         if p.key in seen:
             raise SecretSantaError(f"Duplicate name: {p.name!r}. Names must be unique.")
         seen.add(p.key)
-        if not EMAIL_RE.match(p.email.strip()):
+        if len(p.name) > MAX_NAME_LEN or len(p.spouse) > MAX_NAME_LEN:
+            raise SecretSantaError(f"Names must be {MAX_NAME_LEN} characters or fewer.")
+        if len(p.email) > MAX_EMAIL_LEN or not EMAIL_RE.match(p.email.strip()):
             raise SecretSantaError(f"Invalid email for {p.name!r}: {p.email!r}")
         if p.spouse_key and p.spouse_key == p.key:
             raise SecretSantaError(f"{p.name!r} lists themselves as their spouse.")
@@ -121,7 +128,19 @@ def prompt_participants() -> list[Participant]:
         if p.spouse_key and p.spouse_key not in names:
             print(f"  Note: {p.name}'s spouse {p.spouse!r} isn't in the list, so it has no effect.")
     print(f"\n{len(out)} participants entered.")
+    path = input("Save these to a CSV file for next time? Enter a file name, or press Enter to skip: ").strip()
+    if path:
+        save_csv(path, out)
+        print(f"  Saved. Next time run:  python3 secret_santa.py {path}")
     return out
+
+
+def save_csv(path: str, participants: list[Participant]) -> None:
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["name", "email", "spouse"])
+        for p in participants:
+            w.writerow([p.name, p.email, p.spouse])
 
 
 # ------------------------------------------------------------------------ matching

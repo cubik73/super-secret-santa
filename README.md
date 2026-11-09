@@ -24,13 +24,19 @@ Use **+ Add person** to add more rows, or **Import CSV…** to fill the table fr
 
 Enter your mail server details under **Email settings**. Anything set in the environment variables
 below fills in automatically, except the password.
-The page runs only on your computer (`127.0.0.1`) and saves nothing to disk.
+**Memory:** the page remembers your participants and email settings in your browser, so they're
+still there next time. Nothing is saved on the server. The password is remembered only if you tick
+*Remember password on this device*. That stores it unencrypted in the browser, so leave it off on shared computers.
+**Clear saved data** erases everything.
+
+The page runs only on your computer (`127.0.0.1`).
 Use `--port` to pick a different port, or `--no-browser` to stop it opening a browser.
 
 ### 2. Typed in at the command line
 Run `python3 secret_santa.py` (or add `--test`) without a file. It asks for each person's name, email
 and spouse. It checks each entry as you type it: a bad email, a duplicate name, or a person listed as their
-own spouse is asked for again. Leave the name blank when you're done.
+own spouse is asked for again. Leave the name blank when you're done. At the end it offers to save
+the list to a CSV file, so next time you can run `python3 secret_santa.py yourfile.csv`.
 
 ### 3. From a CSV file
 Use a CSV file with the columns `name,email,spouse`. The `spouse` value can be blank. See `participants.example.csv`.

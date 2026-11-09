@@ -154,6 +154,8 @@ PAGE = r"""<!doctype html>
   .pair:last-child { border-bottom:0; }
   .pair span:first-child { min-width:40%; font-weight:600; }
   details summary { cursor:pointer; font-weight:600; }
+  label.check { display:flex; gap:8px; align-items:baseline; margin-top:14px; font-weight:400; color:var(--ink); font-size:14px; }
+  label.check input { width:auto; margin:0; }
   @media (max-width:640px) {
     .grid { grid-template-columns:1fr; }
     thead { display:none; }
@@ -181,6 +183,10 @@ PAGE = r"""<!doctype html>
       <input id="csvFile" type="file" accept=".csv,text/csv" hidden>
       <span class="hint">CSV columns: name, email, spouse</span>
     </div>
+    <div class="row">
+      <span class="hint" id="savedNote">Your entries are saved in this browser only.</span>
+      <button class="icon" id="clearBtn">Clear saved data</button>
+    </div>
   </section>
 
   <section class="card">
@@ -198,6 +204,8 @@ PAGE = r"""<!doctype html>
         <label>Sent folder <input id="sent_folder"></label>
         <label>Trash folder <input id="trash_folder"></label>
       </div>
+      <label class="check"><input type="checkbox" id="rememberPw">
+        Remember password on this device <span class="hint">(stored unencrypted in this browser; leave off on shared computers)</span></label>
     </details>
   </section>
 
@@ -219,6 +227,29 @@ const MAIL = ['smtp_host','smtp_port','smtp_user','smtp_password','smtp_from','i
 for (const k of MAIL) if (DEFAULTS[k]) document.getElementById(k).value = DEFAULTS[k];
 if (DEFAULTS.password_from_env) document.getElementById('smtp_password').placeholder = '(set on server)';
 
+// ---- memory: everything is kept in this browser's localStorage, never on the server
+const STORE = 'secretSanta.v1';
+function loadSaved() {
+  try { return JSON.parse(localStorage.getItem(STORE)) || null; } catch { return null; }
+}
+let saveTimer;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const mail = {};
+    for (const k of MAIL) if (k !== 'smtp_password') mail[k] = document.getElementById(k).value;
+    const remember = document.getElementById('rememberPw').checked;
+    if (remember) mail.smtp_password = document.getElementById('smtp_password').value;
+    const participants = collect().map(({name, email, spouse}) => ({name, email, spouse}));
+    try {
+      localStorage.setItem(STORE, JSON.stringify({ participants, mail, rememberPw: remember }));
+      document.getElementById('savedNote').textContent = 'Saved in this browser only.';
+    } catch {
+      document.getElementById('savedNote').textContent = "This browser isn't allowing saving, so entries won't be remembered.";
+    }
+  }, 300);
+}
+
 function addRow(p = {}) {
   const tr = document.createElement('tr');
   tr.innerHTML = `<td class="num"></td>
@@ -229,8 +260,8 @@ function addRow(p = {}) {
   tr.querySelector('.name').value = p.name || '';
   tr.querySelector('.email').value = p.email || '';
   tr.querySelector('.spouse').value = p.spouse || '';
-  tr.querySelector('button').onclick = () => { tr.remove(); renumber(); };
-  tr.querySelectorAll('input').forEach(i => i.addEventListener('input', () => { i.classList.remove('bad'); renumber(); }));
+  tr.querySelector('button').onclick = () => { tr.remove(); renumber(); save(); };
+  tr.querySelectorAll('input').forEach(i => i.addEventListener('input', () => { i.classList.remove('bad'); renumber(); save(); }));
   rowsEl.appendChild(tr);
   renumber();
   return tr;
@@ -324,11 +355,30 @@ document.getElementById('csvFile').onchange = async (ev) => {
   rowsEl.innerHTML = '';
   for (const l of lines) { const c = split(l); addRow({name:c[ni], email:c[ei], spouse: si >= 0 ? c[si] : ''}); }
   if (!rowsEl.children.length) addRow();
+  save();
   show('ok', `Imported ${rowsEl.children.length} people.`);
   ev.target.value = '';
 };
 
-for (let i = 0; i < 3; i++) addRow();
+const saved = loadSaved();
+if (saved) {
+  for (const [k, v] of Object.entries(saved.mail || {})) { const el = document.getElementById(k); if (el && v) el.value = v; }
+  document.getElementById('rememberPw').checked = !!saved.rememberPw;
+}
+const savedPeople = (saved && saved.participants || []).filter(p => p.name || p.email || p.spouse);
+if (savedPeople.length) savedPeople.forEach(p => addRow(p)); else for (let i = 0; i < 3; i++) addRow();
+if (savedPeople.length) document.getElementById('savedNote').textContent = `Loaded ${savedPeople.length} people saved in this browser.`;
+
+for (const k of MAIL) document.getElementById(k).addEventListener('input', save);
+document.getElementById('rememberPw').addEventListener('change', save);
+document.getElementById('clearBtn').onclick = () => {
+  if (!confirm('Clear all saved participants and email settings from this browser?')) return;
+  try { localStorage.removeItem(STORE); } catch {}
+  rowsEl.innerHTML = ''; for (let i = 0; i < 3; i++) addRow();
+  for (const k of MAIL) document.getElementById(k).value = DEFAULTS[k] || '';
+  document.getElementById('rememberPw').checked = false;
+  document.getElementById('savedNote').textContent = 'Saved data cleared.';
+};
 </script>
 </body></html>
 """

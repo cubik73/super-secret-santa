@@ -59,6 +59,19 @@ class TestPairings(unittest.TestCase):
 
 
 class TestCsvAndMessage(unittest.TestCase):
+    def test_save_then_load_csv(self):
+        people = [P("Ann", "a@x.com", "Bob"), P("Bob, Jr.", "b@x.com")]
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "p.csv")
+            ss.save_csv(path, people)
+            self.assertEqual(ss.load_csv(path), people)
+
+    def test_limits(self):
+        with self.assertRaises(ss.SecretSantaError):
+            ss.make_pairings([P("A" * 61, "a@x.com"), P("B", "b@x.com")])
+        with self.assertRaises(ss.SecretSantaError):
+            ss.make_pairings([P(f"P{i}", f"p{i}@x.com") for i in range(101)])
+
     def test_load_csv(self):
         with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as f:
             f.write("Name,Email,Spouse\nAnn,a@x.com,Bob\nBob,b@x.com,\n\nCat,c@x.com,\n")
@@ -93,6 +106,7 @@ class TestPrompt(unittest.TestCase):
             "ann",                    # duplicate name: skipped
             "Bob", "b@x.com", "",
             "",                       # done
+            "",                       # don't save to CSV
         ])
         self.assertEqual([(p.name, p.email, p.spouse) for p in people],
                          [("Ann", "a@x.com", "Bob"), ("Bob", "b@x.com", "")])
