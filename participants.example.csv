@@ -1,0 +1,6 @@
+name,email,spouse
+Alice,alice@example.com,Bob
+Bob,bob@example.com,Alice
+Carol,carol@example.com,Dave
+Dave,dave@example.com,Carol
+Erin,erin@example.com,

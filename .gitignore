@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+participants.csv
+build/
+dist/
+pkg/
+*.spec

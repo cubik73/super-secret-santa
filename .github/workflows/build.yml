@@ -1,0 +1,105 @@
+name: Build executables
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed only to attach files to a release on v* tags
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: secret-santa-windows-x64
+            exe: secret-santa.exe
+          - os: macos-latest            # Apple Silicon (M1 and newer)
+            artifact: secret-santa-macos-apple-silicon
+            exe: secret-santa
+          - os: macos-15-intel          # Intel Macs
+            artifact: secret-santa-macos-intel
+            exe: secret-santa
+          - os: ubuntu-22.04            # older glibc, so it runs on more Linux versions
+            artifact: secret-santa-linux-x64
+            exe: secret-santa
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyInstaller
+        run: python -m pip install pyinstaller==6.22.3
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build
+        run: pyinstaller --onefile --name secret-santa --clean --noconfirm app.py
+
+      - name: Smoke test the executable
+        run: |
+          ./dist/${{ matrix.exe }} cli participants.example.csv --test
+          ./dist/${{ matrix.exe }} --help
+
+      - name: Package
+        run: |
+          mkdir -p "pkg/${{ matrix.artifact }}"
+          cp "dist/${{ matrix.exe }}" packaging/HOW-TO-RUN.txt participants.example.csv "pkg/${{ matrix.artifact }}/"
+          python - <<'PY'
+          import shutil, sys
+          name = "${{ matrix.artifact }}"
+          fmt = "gztar" if "linux" in name else "zip"   # tar keeps the run permission on Linux
+          print(shutil.make_archive(name, fmt, root_dir="pkg", base_dir=name))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}.zip
+            ${{ matrix.artifact }}.tar.gz
+          if-no-files-found: error
+
+  # Publishes a GitHub Release with all four downloads when either:
+  #   - a v* tag is pushed, or
+  #   - a pushed commit's message contains "[release]" (version taken from VERSION)
+  release:
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[release]'))
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Work out the version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=v$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Secret Santa ${{ steps.ver.outputs.tag }}
+          body_path: packaging/RELEASE_NOTES.md
+          files: out/*
+          make_latest: true
