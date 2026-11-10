@@ -44,7 +44,7 @@ Use **+ Add person** to add more rows, or **Import CSV…** to fill the table fr
 - **Test mode: show pairings**: shows every pairing on the page and sends no email.
 - **Draw & send emails**: emails each person their giftee. The page lists who was emailed, but never who they drew.
 
-Enter your mail server details under **Email settings**. Anything set in the environment variables
+Enter your mail server details under **Email settings**. Click **Check email settings** to test them: it signs in but sends nothing. Anything set in the environment variables
 below fills in automatically, except the password.
 **Memory:** the page remembers your participants and email settings in your browser, so they're
 still there next time. Nothing is saved on the server. The password is remembered only if you tick
@@ -82,6 +82,7 @@ export SMTP_HOST=smtp.gmail.com SMTP_PORT=587
 export SMTP_USER=you@gmail.com SMTP_PASSWORD='your-app-password'
 export IMAP_HOST=imap.gmail.com
 export IMAP_SENT_FOLDER='[Gmail]/Sent Mail' IMAP_TRASH_FOLDER='[Gmail]/Trash'
+python3 secret_santa.py participants.csv --check-email   # signs in, sends nothing
 python3 secret_santa.py participants.csv
 ```
 If you don't set `SMTP_PASSWORD`, the app asks for it. For Gmail, use an

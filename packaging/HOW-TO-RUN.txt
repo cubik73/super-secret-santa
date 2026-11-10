@@ -31,7 +31,16 @@ Open "Email settings" on the form. For Gmail:
   Password:    a Gmail App Password (https://myaccount.google.com/apppasswords),
                not your normal password.
 
+Click "Check email settings" to test them. It signs in but sends nothing.
 Always try "Test mode: show pairings" first. It sends nothing.
+
+If you get an email error:
+  - "closed the connection" -> check the server name and port. Use 587 or 465.
+    Antivirus with email scanning (Avast, AVG, ESET...) can also cause it.
+    Turn that scanning off for a moment and try again.
+  - "rejected the username or password" -> use an app password, not your
+    normal one. Outlook.com/Hotmail can't be used to send from apps.
+  - The app says whether any emails went out before the error, and to whom.
 
 
 COMMAND-LINE VERSION (optional)

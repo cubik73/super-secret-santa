@@ -90,11 +90,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, b"Not found", "text/plain")
 
     def do_POST(self):
-        if self.path not in ("/api/test", "/api/send"):
+        if self.path not in ("/api/test", "/api/send", "/api/check-mail"):
             return self._send(404, b"Not found", "text/plain")
         try:
             length = int(self.headers.get("Content-Length", "0"))
             data = json.loads(self.rfile.read(length) or b"{}")
+            if self.path == "/api/check-mail":
+                return self._json(200, {"message": ss.check_connection(_mail_config(data))})
             people = _participants(data)
             if self.path == "/api/test":
                 pairs = ss.make_pairings(people)
@@ -106,6 +108,11 @@ class Handler(BaseHTTPRequestHandler):
             warnings = ss.send_all(cfg, people, pairs, log=log.append)
             # Response says who was emailed, never who they drew.
             return self._json(200, {"log": log, "warnings": warnings})
+        except ss.SendError as exc:
+            body = {"error": f"Email error: {exc}"}
+            if self.path == "/api/send":
+                body["note"] = ss.partial_send_note(exc.sent)
+            return self._json(502, body)
         except ss.SecretSantaError as exc:
             return self._json(400, {"error": str(exc)})
         except (smtplib.SMTPException, OSError) as exc:
@@ -205,6 +212,8 @@ PAGE = r"""<!doctype html>
         <label>Sent folder <input id="sent_folder"></label>
         <label>Trash folder <input id="trash_folder"></label>
       </div>
+      <div class="row"><button id="checkBtn">Check email settings</button>
+        <span class="hint">Signs in to test the settings. Sends nothing.</span></div>
       <label class="check"><input type="checkbox" id="rememberPw">
         Remember password on this device <span class="hint">(stored unencrypted in this browser; leave off on shared computers)</span></label>
     </details>
@@ -303,10 +312,17 @@ function validate() {
 async function post(url, body) {
   const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
   const data = await r.json().catch(() => ({error:'Unexpected server response.'}));
-  if (!r.ok) throw new Error(data.error || 'Something went wrong.');
+  if (!r.ok) throw new Error([data.error || 'Something went wrong.', data.note].filter(Boolean).join('\n\n'));
   return data;
 }
-function busy(on) { document.getElementById('testBtn').disabled = on; document.getElementById('sendBtn').disabled = on; }
+function busy(on) { for (const id of ['testBtn','sendBtn','checkBtn']) document.getElementById(id).disabled = on; }
+function mailSettings() { const m = {}; for (const k of MAIL) m[k] = document.getElementById(k).value.trim(); return m; }
+
+document.getElementById('checkBtn').onclick = async () => {
+  busy(true); show('ok', 'Checking email settings…');
+  try { show('ok', (await post('/api/check-mail', { mail: mailSettings() })).message); }
+  catch (e) { show('err', e.message); } finally { busy(false); }
+};
 
 document.getElementById('add').onclick = () => addRow().querySelector('.name').focus();
 
@@ -330,7 +346,7 @@ document.getElementById('testBtn').onclick = async () => {
 document.getElementById('sendBtn').onclick = async () => {
   const participants = validate(); if (!participants) return;
   if (!confirm(`Draw names and email all ${participants.length} people now?`)) return;
-  const mail = {}; for (const k of MAIL) mail[k] = document.getElementById(k).value.trim();
+  const mail = mailSettings();
   document.getElementById('results').style.display = 'none';
   document.getElementById('pairs').innerHTML = '';
   busy(true); show('ok', 'Sending…');
@@ -341,7 +357,7 @@ document.getElementById('sendBtn').onclick = async () => {
     show('ok', text);
   } catch (e) {
     show('err', e.message);
-    if (/settings/.test(e.message)) document.getElementById('mailBox').open = true;
+    if (/settings|Email error/.test(e.message)) document.getElementById('mailBox').open = true;
   } finally { busy(false); }
 };
 

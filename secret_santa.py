@@ -290,25 +290,157 @@ def _quote(s: str) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+class SendError(SecretSantaError):
+    """Sending failed. `sent` lists who already got their email (empty = nobody)."""
+
+    def __init__(self, message: str, sent: list[str] | None = None):
+        super().__init__(message)
+        self.sent = sent or []
+
+
+SECURITY_HELP = ("Use port 587 (STARTTLS) or 465 (SSL). For Gmail: smtp.gmail.com, port 587.")
+APP_PASSWORD_HELP = (
+    "Gmail, Yahoo and iCloud need an app password, not your normal password "
+    "(Gmail: https://myaccount.google.com/apppasswords; it needs 2-Step Verification on). "
+    "Outlook.com/Hotmail no longer allow apps to sign in with a password, so use a "
+    "different email account to send from."
+)
+
+
+def _ssl_context() -> ssl.SSLContext:
+    ctx = ssl.create_default_context()
+    try:  # packaged apps may not find the system certificates (notably on macOS)
+        import certifi
+        ctx.load_verify_locations(certifi.where())
+    except Exception:
+        pass
+    return ctx
+
+
+def explain_error(exc: BaseException, cfg: MailConfig, stage: str) -> str:
+    """Turn a low-level mail error into something a person can act on."""
+    where = f"{cfg.smtp_host}:{cfg.smtp_port}"
+    if isinstance(exc, smtplib.SMTPAuthenticationError):
+        return f"The mail server rejected the username or password. {APP_PASSWORD_HELP}"
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        bad = ", ".join(exc.recipients) or "a recipient"
+        return f"The mail server refused to send to {bad}. Check that address."
+    if isinstance(exc, smtplib.SMTPSenderRefused):
+        return (f"The mail server wouldn't send from {cfg.sender}. The From address usually "
+                "has to be the same as the account you sign in with.")
+    if isinstance(exc, ssl.SSLCertVerificationError):
+        return (f"Couldn't verify {cfg.smtp_host}'s security certificate. Check the server name. "
+                "Antivirus that scans email (Avast, AVG, ESET and similar) can also cause this; "
+                "try turning its email scanning off for a moment.")
+    if isinstance(exc, smtplib.SMTPNotSupportedError):
+        return f"{where} doesn't support a secure connection on this port. {SECURITY_HELP}"
+    if isinstance(exc, smtplib.SMTPServerDisconnected) or isinstance(exc, ssl.SSLError):
+        if stage == "connect":
+            return (f"{where} closed the connection straight away. This is usually a wrong "
+                    f"server or port. {SECURITY_HELP} Antivirus that scans email (Avast, AVG, "
+                    "ESET and similar) can also cause this; try turning its email scanning off "
+                    "for a moment.")
+        if stage == "login":
+            return (f"{where} closed the connection while signing in. That usually means the "
+                    f"sign-in was refused. {APP_PASSWORD_HELP}")
+        return (f"{where} dropped the connection while sending. The provider may be limiting "
+                "how many emails you can send. Wait a few minutes and try again.")
+    if isinstance(exc, TimeoutError) or "timed out" in str(exc):
+        return (f"Timed out reaching {where}. Check the server name and port. Some networks "
+                f"block email ports; try another network or port. {SECURITY_HELP}")
+    if isinstance(exc, OSError):  # refused, unknown host, network unreachable...
+        return f"Couldn't reach {where} ({exc}). Check the server name and port. {SECURITY_HELP}"
+    return f"{exc} ({type(exc).__name__})"
+
+
+def _connect(cfg: MailConfig, port: int | None = None) -> smtplib.SMTP:
+    """Connect and sign in. Raises SendError with a friendly message."""
+    port = port or cfg.smtp_port
+    ctx = _ssl_context()
+    stage = "connect"
+    smtp = None
+    try:
+        if port == 465:
+            smtp = smtplib.SMTP_SSL(cfg.smtp_host, port, context=ctx, timeout=30)
+        else:
+            smtp = smtplib.SMTP(cfg.smtp_host, port, timeout=30)
+            smtp.ehlo()
+            smtp.starttls(context=ctx)
+            smtp.ehlo()
+        stage = "login"
+        smtp.login(cfg.user, cfg.password)
+        return smtp
+    except (smtplib.SMTPException, OSError) as exc:
+        if smtp is not None:
+            try:
+                smtp.close()
+            except Exception:
+                pass
+        cfg_for_msg = cfg if port == cfg.smtp_port else MailConfig(**{**cfg.__dict__, "smtp_port": port})
+        raise SendError(explain_error(exc, cfg_for_msg, stage)) from exc
+
+
+def check_connection(cfg: MailConfig) -> str:
+    """Try to sign in without sending anything. Returns a success message or raises
+    SendError. If the chosen port fails before sign-in, tries the other common port
+    and says so if that one works."""
+    try:
+        _connect(cfg).quit()
+        return f"Signed in to {cfg.smtp_host} as {cfg.user}. Email settings look good."
+    except SendError as first:
+        cause = first.__cause__
+        if isinstance(cause, smtplib.SMTPAuthenticationError) or cfg.smtp_port not in (465, 587):
+            raise
+        other = 465 if cfg.smtp_port == 587 else 587
+        try:
+            _connect(cfg, other).quit()
+        except SendError:
+            raise first
+        raise SendError(f"Port {cfg.smtp_port} didn't work, but port {other} did. "
+                        f"Change the port to {other}.") from None
+
+
 def send_all(cfg: MailConfig, participants: list[Participant], pairings: dict[str, Participant],
              log=print) -> list[str]:
-    """Send one email per gifter, then delete the sent copies. Returns warnings."""
+    """Send one email per gifter, then delete the sent copies. Returns warnings.
+
+    Signs in before sending anything, so a bad setting sends no email. If the
+    connection drops part-way, it reconnects and carries on with the same draw.
+    """
     message_ids: list[str] = []
-    ctx = ssl.create_default_context()
-    if cfg.smtp_port == 465:
-        smtp = smtplib.SMTP_SSL(cfg.smtp_host, cfg.smtp_port, context=ctx)
-    else:
-        smtp = smtplib.SMTP(cfg.smtp_host, cfg.smtp_port)
-        smtp.starttls(context=ctx)
-    with smtp:
-        smtp.login(cfg.user, cfg.password)
+    sent: list[str] = []
+    smtp = _connect(cfg)  # nothing has been sent if this fails
+    try:
         for p in participants:
             msg = build_message(cfg, p, pairings[p.key])
-            smtp.send_message(msg)
+            for attempt in range(3):
+                try:
+                    smtp.send_message(msg)
+                    break
+                except (smtplib.SMTPServerDisconnected, OSError) as exc:
+                    if attempt == 2:
+                        raise SendError(explain_error(exc, cfg, "send"), sent) from exc
+                    log(f"  … connection dropped, reconnecting")
+                    try:
+                        smtp.close()
+                    except Exception:
+                        pass
+                    try:
+                        smtp = _connect(cfg)
+                    except SendError as err:
+                        raise SendError(str(err), sent) from err
+                except smtplib.SMTPException as exc:
+                    raise SendError(explain_error(exc, cfg, "send"), sent) from exc
             message_ids.append(msg["Message-ID"])
+            sent.append(p.name)
             del msg  # don't keep the content around
             log(f"  ✓ sent to {p.name}")
-    pairings.clear()
+    finally:
+        pairings.clear()
+        try:
+            smtp.quit()
+        except Exception:
+            pass
 
     if not cfg.imap_host:
         return ["No IMAP server was set, so the copies your mail provider saved in "
@@ -320,6 +452,14 @@ def send_all(cfg: MailConfig, participants: list[Participant], pairings: dict[st
     return warnings
 
 
+def partial_send_note(sent: list[str]) -> str:
+    if not sent:
+        return "No emails were sent, so nothing needs undoing. Fix the problem and try again."
+    return (f"{len(sent)} email(s) went out before the error, to: {', '.join(sent)}. "
+            "Sending again makes a brand-new draw, so ask those people to ignore their first "
+            "email and use the newest one.")
+
+
 # ----------------------------------------------------------------------------- cli
 
 def main(argv: list[str] | None = None) -> int:
@@ -328,9 +468,14 @@ def main(argv: list[str] | None = None) -> int:
                     "If omitted, you'll be prompted to type participants.")
     ap.add_argument("--test", action="store_true",
                     help="Test mode: print all pairings to the screen and send no email.")
+    ap.add_argument("--check-email", action="store_true",
+                    help="Check the email settings by signing in, without sending anything.")
     args = ap.parse_args(argv)
 
     try:
+        if args.check_email:
+            print(check_connection(MailConfig.from_env()))
+            return 0
         participants = load_csv(args.csv) if args.csv else prompt_participants()
         pairings = make_pairings(participants)
 
@@ -348,6 +493,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  ! {w}", file=sys.stderr)
         print("Done. Happy holidays! 🎄")
         return 0
+    except SendError as exc:
+        print(f"Email error: {exc}", file=sys.stderr)
+        if not args.check_email:
+            print(partial_send_note(exc.sent), file=sys.stderr)
+        return 2
     except SecretSantaError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
